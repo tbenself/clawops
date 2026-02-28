@@ -16,8 +16,8 @@ const SECRET_PATTERNS = [
   /Bearer\s+[A-Za-z0-9\-._~+/]+=*/,
   /-----BEGIN\s+(RSA\s+)?PRIVATE\s+KEY-----/,
   /-----BEGIN\s+CERTIFICATE-----/,
-  /xoxb-[0-9]{10,}-[A-Za-z0-9]{20,}/,
-  /xoxp-[0-9]{10,}-[0-9]{10,}-[A-Za-z0-9]{20,}/,
+  /xoxb-[A-Za-z0-9._-]{6,}/,
+  /xoxp-[A-Za-z0-9._-]{6,}/,
   /AKIA[0-9A-Z]{16}/,
 ];
 

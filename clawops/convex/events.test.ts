@@ -42,7 +42,7 @@ describe("containsSecret", () => {
   });
 
   it("detects Slack tokens", () => {
-    expect(containsSecret("xoxb-test-token")).toBe(true);
+    expect(containsSecret("xoxb-fake-slack")).toBe(true);
   });
 
   it("detects AWS access keys", () => {
