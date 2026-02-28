@@ -3,6 +3,8 @@ import { convexTest } from "convex-test";
 import schema from "./schema";
 import { api, internal } from "./_generated/api";
 
+const modules = import.meta.glob("./**/*.*s");
+
 // ── Test helpers ────────────────────────────────────────────────
 
 const BASE_DECISION = {
@@ -28,7 +30,7 @@ function asUser(t: ReturnType<typeof convexTest>, subject: string) {
 
 describe("requestDecision", () => {
   it("creates a PENDING decision and emits DecisionRequested", async () => {
-    const t = convexTest(schema);
+    const t = convexTest(schema, modules);
     const as = asUser(t, "user:alice");
 
     const result = await as.mutation(api.decisions.requestDecision, BASE_DECISION);
@@ -53,7 +55,7 @@ describe("requestDecision", () => {
   });
 
   it("rejects decision with no options", async () => {
-    const t = convexTest(schema);
+    const t = convexTest(schema, modules);
     const as = asUser(t, "user:alice");
 
     await expect(
@@ -65,7 +67,7 @@ describe("requestDecision", () => {
   });
 
   it("rejects fallbackOption that doesn't match an option key", async () => {
-    const t = convexTest(schema);
+    const t = convexTest(schema, modules);
     const as = asUser(t, "user:alice");
 
     await expect(
@@ -81,7 +83,7 @@ describe("requestDecision", () => {
 
 describe("claimDecision", () => {
   it("claims a PENDING decision", async () => {
-    const t = convexTest(schema);
+    const t = convexTest(schema, modules);
     const alice = asUser(t, "user:alice");
 
     const { decisionId } = await alice.mutation(
@@ -98,7 +100,7 @@ describe("claimDecision", () => {
   });
 
   it("rejects claim by another operator on an active claim", async () => {
-    const t = convexTest(schema);
+    const t = convexTest(schema, modules);
     const alice = asUser(t, "user:alice");
     const bob = asUser(t, "user:bob");
 
@@ -118,7 +120,7 @@ describe("claimDecision", () => {
   });
 
   it("allows re-claim by the same operator", async () => {
-    const t = convexTest(schema);
+    const t = convexTest(schema, modules);
     const alice = asUser(t, "user:alice");
 
     const { decisionId } = await alice.mutation(
@@ -135,7 +137,7 @@ describe("claimDecision", () => {
   });
 
   it("rejects claim on already-rendered decision", async () => {
-    const t = convexTest(schema);
+    const t = convexTest(schema, modules);
     const alice = asUser(t, "user:alice");
 
     const { decisionId } = await alice.mutation(
@@ -154,7 +156,7 @@ describe("claimDecision", () => {
   });
 
   it("rejects unauthenticated claim", async () => {
-    const t = convexTest(schema);
+    const t = convexTest(schema, modules);
     const alice = asUser(t, "user:alice");
 
     const { decisionId } = await alice.mutation(
@@ -169,7 +171,7 @@ describe("claimDecision", () => {
   });
 
   it("emits DecisionClaimed event", async () => {
-    const t = convexTest(schema);
+    const t = convexTest(schema, modules);
     const alice = asUser(t, "user:alice");
 
     const { decisionId } = await alice.mutation(
@@ -191,7 +193,7 @@ describe("claimDecision", () => {
 
 describe("renewDecisionClaim", () => {
   it("extends claim for the owning operator", async () => {
-    const t = convexTest(schema);
+    const t = convexTest(schema, modules);
     const alice = asUser(t, "user:alice");
 
     const { decisionId } = await alice.mutation(
@@ -208,7 +210,7 @@ describe("renewDecisionClaim", () => {
   });
 
   it("rejects renewal by a different operator", async () => {
-    const t = convexTest(schema);
+    const t = convexTest(schema, modules);
     const alice = asUser(t, "user:alice");
     const bob = asUser(t, "user:bob");
 
@@ -225,7 +227,7 @@ describe("renewDecisionClaim", () => {
   });
 
   it("rejects renewal on unclaimed decision", async () => {
-    const t = convexTest(schema);
+    const t = convexTest(schema, modules);
     const alice = asUser(t, "user:alice");
 
     const { decisionId } = await alice.mutation(
@@ -239,7 +241,7 @@ describe("renewDecisionClaim", () => {
   });
 
   it("does not emit an event", async () => {
-    const t = convexTest(schema);
+    const t = convexTest(schema, modules);
     const alice = asUser(t, "user:alice");
 
     const { decisionId } = await alice.mutation(
@@ -268,7 +270,7 @@ describe("renewDecisionClaim", () => {
 
 describe("renderDecision", () => {
   it("renders a PENDING decision", async () => {
-    const t = convexTest(schema);
+    const t = convexTest(schema, modules);
     const alice = asUser(t, "user:alice");
 
     const { decisionId } = await alice.mutation(
@@ -302,7 +304,7 @@ describe("renderDecision", () => {
   });
 
   it("renders a CLAIMED decision by the claim owner", async () => {
-    const t = convexTest(schema);
+    const t = convexTest(schema, modules);
     const alice = asUser(t, "user:alice");
 
     const { decisionId } = await alice.mutation(
@@ -328,7 +330,7 @@ describe("renderDecision", () => {
   });
 
   it("rejects render of already-rendered decision (race condition)", async () => {
-    const t = convexTest(schema);
+    const t = convexTest(schema, modules);
     const alice = asUser(t, "user:alice");
     const bob = asUser(t, "user:bob");
 
@@ -362,7 +364,7 @@ describe("renderDecision", () => {
   });
 
   it("rejects render by non-claimant on a CLAIMED decision", async () => {
-    const t = convexTest(schema);
+    const t = convexTest(schema, modules);
     const alice = asUser(t, "user:alice");
     const bob = asUser(t, "user:bob");
 
@@ -389,7 +391,7 @@ describe("renderDecision", () => {
   });
 
   it("rejects invalid option key", async () => {
-    const t = convexTest(schema);
+    const t = convexTest(schema, modules);
     const alice = asUser(t, "user:alice");
 
     const { decisionId } = await alice.mutation(
@@ -406,7 +408,7 @@ describe("renderDecision", () => {
   });
 
   it("rejects unauthenticated render", async () => {
-    const t = convexTest(schema);
+    const t = convexTest(schema, modules);
     const alice = asUser(t, "user:alice");
 
     const { decisionId } = await alice.mutation(
@@ -423,7 +425,7 @@ describe("renderDecision", () => {
   });
 
   it("exactly one DecisionRendered event per decision", async () => {
-    const t = convexTest(schema);
+    const t = convexTest(schema, modules);
     const alice = asUser(t, "user:alice");
     const bob = asUser(t, "user:bob");
 
@@ -457,7 +459,7 @@ describe("renderDecision", () => {
 
 describe("pendingDecisions", () => {
   it("returns PENDING and CLAIMED decisions sorted by urgency", async () => {
-    const t = convexTest(schema);
+    const t = convexTest(schema, modules);
     const alice = asUser(t, "user:alice");
 
     // Create decisions with different urgencies
@@ -499,7 +501,7 @@ describe("pendingDecisions", () => {
   });
 
   it("excludes rendered decisions", async () => {
-    const t = convexTest(schema);
+    const t = convexTest(schema, modules);
     const alice = asUser(t, "user:alice");
 
     const { decisionId } = await alice.mutation(
@@ -520,7 +522,7 @@ describe("pendingDecisions", () => {
   });
 
   it("filters by urgency when provided", async () => {
-    const t = convexTest(schema);
+    const t = convexTest(schema, modules);
     const alice = asUser(t, "user:alice");
 
     await alice.mutation(api.decisions.requestDecision, {
@@ -549,7 +551,7 @@ describe("pendingDecisions", () => {
 
 describe("decisionDetail", () => {
   it("returns full decision with context bundle", async () => {
-    const t = convexTest(schema);
+    const t = convexTest(schema, modules);
     const alice = asUser(t, "user:alice");
 
     const { decisionId } = await alice.mutation(
@@ -569,7 +571,7 @@ describe("decisionDetail", () => {
   });
 
   it("returns null for unknown decisionId", async () => {
-    const t = convexTest(schema);
+    const t = convexTest(schema, modules);
     const alice = asUser(t, "user:alice");
 
     const detail = await alice.query(api.decisions.decisionDetail, {

@@ -4,6 +4,8 @@ import schema from "./schema";
 import { internal } from "./_generated/api";
 import { containsSecret } from "./events";
 
+const modules = import.meta.glob("./**/*.*s");
+
 // ── Test helpers ────────────────────────────────────────────────
 
 function makeEvent(overrides: Record<string, unknown> = {}) {
@@ -68,7 +70,7 @@ describe("containsSecret", () => {
 
 describe("appendEvent", () => {
   it("rejects payloads containing secrets", async () => {
-    const t = convexTest(schema);
+    const t = convexTest(schema, modules);
     await expect(
       t.mutation(internal.events.appendEvent, makeEvent({
         payload: { token: "ghp_FAKE0000000000000000000000000000000000" },
@@ -77,7 +79,7 @@ describe("appendEvent", () => {
   });
 
   it("rejects tags containing secrets", async () => {
-    const t = convexTest(schema);
+    const t = convexTest(schema, modules);
     await expect(
       t.mutation(internal.events.appendEvent, makeEvent({
         tags: { auth: "Bearer FAKE-TOKEN-FOR-TESTING" },
@@ -86,7 +88,7 @@ describe("appendEvent", () => {
   });
 
   it("accepts clean payloads", async () => {
-    const t = convexTest(schema);
+    const t = convexTest(schema, modules);
     const id = await t.mutation(
       internal.events.appendEvent,
       makeEvent({ payload: { summary: "All good" } }),
@@ -97,7 +99,7 @@ describe("appendEvent", () => {
   // ── Idempotency ─────────────────────────────────────────────
 
   it("deduplicates events with the same idempotencyKey", async () => {
-    const t = convexTest(schema);
+    const t = convexTest(schema, modules);
     const event = makeEvent({ idempotencyKey: "dedup-test-1" });
 
     const id1 = await t.mutation(internal.events.appendEvent, event);
@@ -111,7 +113,7 @@ describe("appendEvent", () => {
   });
 
   it("allows events without idempotencyKey to be duplicated", async () => {
-    const t = convexTest(schema);
+    const t = convexTest(schema, modules);
     const base = makeEvent();
 
     const id1 = await t.mutation(internal.events.appendEvent, base);
@@ -124,7 +126,7 @@ describe("appendEvent", () => {
   });
 
   it("allows different idempotencyKeys", async () => {
-    const t = convexTest(schema);
+    const t = convexTest(schema, modules);
 
     const id1 = await t.mutation(
       internal.events.appendEvent,
@@ -143,7 +145,7 @@ describe("appendEvent", () => {
 
 describe("listByCorrelationId", () => {
   it("returns events for a correlation chain ordered by ts", async () => {
-    const t = convexTest(schema);
+    const t = convexTest(schema, modules);
     const correlationId = "corr_chain_1";
 
     await t.mutation(internal.events.appendEvent, makeEvent({
@@ -170,7 +172,7 @@ describe("listByCorrelationId", () => {
   });
 
   it("scopes results to projectId", async () => {
-    const t = convexTest(schema);
+    const t = convexTest(schema, modules);
     const correlationId = "corr_shared";
 
     await t.mutation(internal.events.appendEvent, makeEvent({
@@ -194,7 +196,7 @@ describe("listByCorrelationId", () => {
 
 describe("listByType", () => {
   it("filters by event type", async () => {
-    const t = convexTest(schema);
+    const t = convexTest(schema, modules);
 
     await t.mutation(internal.events.appendEvent, makeEvent({
       eventId: "evt_cr", type: "CommandRequested" as const,
@@ -215,7 +217,7 @@ describe("listByType", () => {
   });
 
   it("respects time range bounds", async () => {
-    const t = convexTest(schema);
+    const t = convexTest(schema, modules);
 
     await t.mutation(internal.events.appendEvent, makeEvent({
       eventId: "evt_early", type: "CardCreated" as const, ts: 1000,
@@ -238,7 +240,7 @@ describe("listByType", () => {
   });
 
   it("respects limit", async () => {
-    const t = convexTest(schema);
+    const t = convexTest(schema, modules);
 
     for (let i = 0; i < 5; i++) {
       await t.mutation(internal.events.appendEvent, makeEvent({
@@ -259,7 +261,7 @@ describe("listByType", () => {
 
 describe("listByTsRange", () => {
   it("returns events in ts order within a project", async () => {
-    const t = convexTest(schema);
+    const t = convexTest(schema, modules);
 
     await t.mutation(internal.events.appendEvent, makeEvent({
       eventId: "evt_a", ts: 3000,
@@ -284,7 +286,7 @@ describe("listByTsRange", () => {
   });
 
   it("supports composite cursor with afterEventId", async () => {
-    const t = convexTest(schema);
+    const t = convexTest(schema, modules);
 
     // Events at the same timestamp — ULID ordering matters
     await t.mutation(internal.events.appendEvent, makeEvent({
@@ -311,7 +313,7 @@ describe("listByTsRange", () => {
   });
 
   it("respects untilTs upper bound", async () => {
-    const t = convexTest(schema);
+    const t = convexTest(schema, modules);
 
     await t.mutation(internal.events.appendEvent, makeEvent({
       eventId: "evt_in", ts: 1000,
@@ -331,7 +333,7 @@ describe("listByTsRange", () => {
   });
 
   it("respects limit", async () => {
-    const t = convexTest(schema);
+    const t = convexTest(schema, modules);
 
     for (let i = 0; i < 10; i++) {
       await t.mutation(internal.events.appendEvent, makeEvent({
