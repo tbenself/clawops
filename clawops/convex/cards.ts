@@ -3,6 +3,7 @@ import { mutation, internalMutation, query } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { cardState, cardSpec } from "./schema";
 import type { CardState } from "./schema";
+import { withAuth, withAuthQ, ALL_ROLES } from "./auth";
 
 // ── Helpers ─────────────────────────────────────────────────────
 
@@ -22,11 +23,10 @@ const VALID_TRANSITIONS: Record<CardState, CardState[]> = {
   FAILED: [],
 };
 
-// ── createCard ──────────────────────────────────────────────────
+// ── createCard (bot/owner) ──────────────────────────────────────
 
 export const createCard = mutation({
   args: {
-    tenantId: v.string(),
     projectId: v.string(),
     commandId: v.string(),
     correlationId: v.string(),
@@ -35,14 +35,14 @@ export const createCard = mutation({
     spec: cardSpec,
     capabilities: v.optional(v.array(v.string())),
   },
-  handler: async (ctx, args) => {
+  handler: withAuth({ roles: ["bot", "owner"] }, async (ctx, args, auth) => {
     const now = Date.now();
     const cardId = generateId("card");
 
     const docId = await ctx.db.insert("cards", {
       cardId,
-      tenantId: args.tenantId,
-      projectId: args.projectId,
+      tenantId: auth.tenantId,
+      projectId: auth.projectId,
       state: "READY",
       priority: args.priority,
       title: args.title,
@@ -55,8 +55,8 @@ export const createCard = mutation({
 
     await ctx.runMutation(internal.events.appendEvent, {
       eventId: generateId("evt"),
-      tenantId: args.tenantId,
-      projectId: args.projectId,
+      tenantId: auth.tenantId,
+      projectId: auth.projectId,
       type: "CardCreated",
       version: 1,
       ts: now,
@@ -72,10 +72,11 @@ export const createCard = mutation({
     });
 
     return { cardId, _id: docId };
-  },
+  }),
 });
 
 // ── transitionCard (internal, validates §9.2 state machine) ─────
+// Intentionally auth-free: trusted internal system code.
 
 export const transitionCard = internalMutation({
   args: {
@@ -150,31 +151,31 @@ export const transitionCard = internalMutation({
   },
 });
 
-// ── cardsByState query ──────────────────────────────────────────
+// ── cardsByState query (any role) ───────────────────────────────
 
 export const cardsByState = query({
   args: {
     projectId: v.string(),
     state: cardState,
   },
-  handler: async (ctx, args) => {
+  handler: withAuthQ({ roles: ALL_ROLES }, async (ctx, args, _auth) => {
     return await ctx.db
       .query("cards")
       .withIndex("by_projectId_state_priority", (q) =>
         q.eq("projectId", args.projectId).eq("state", args.state),
       )
       .collect();
-  },
+  }),
 });
 
-// ── eventChain query ────────────────────────────────────────────
+// ── eventChain query (any role) ─────────────────────────────────
 
 export const eventChain = query({
   args: {
     projectId: v.string(),
     correlationId: v.string(),
   },
-  handler: async (ctx, args) => {
+  handler: withAuthQ({ roles: ALL_ROLES }, async (ctx, args, _auth) => {
     return await ctx.db
       .query("events")
       .withIndex("by_projectId_correlationId_ts", (q) =>
@@ -183,5 +184,5 @@ export const eventChain = query({
           .eq("correlationId", args.correlationId),
       )
       .collect();
-  },
+  }),
 });

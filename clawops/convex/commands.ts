@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { mutation } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { commandSpec } from "./schema";
+import { withAuth } from "./auth";
 
 // ── Helpers ─────────────────────────────────────────────────────
 
@@ -11,13 +12,12 @@ function generateId(prefix: string): string {
   return `${prefix}_${ts}${rand}`;
 }
 
-// ── requestCommand ──────────────────────────────────────────────
+// ── requestCommand (operator/bot/owner) ─────────────────────────
 // Emits CommandRequested, creates card in READY state, inserts
 // commands read model — all in one transaction.
 
 export const requestCommand = mutation({
   args: {
-    tenantId: v.string(),
     projectId: v.string(),
     correlationId: v.string(),
     title: v.string(),
@@ -25,7 +25,7 @@ export const requestCommand = mutation({
     capabilities: v.optional(v.array(v.string())),
     idempotencyKey: v.optional(v.string()),
   },
-  handler: async (ctx, args) => {
+  handler: withAuth({ roles: ["operator", "bot", "owner"] }, async (ctx, args, auth) => {
     const now = Date.now();
     const commandId = generateId("cmd");
     const cardId = generateId("card");
@@ -35,8 +35,8 @@ export const requestCommand = mutation({
     const eventId = generateId("evt");
     await ctx.runMutation(internal.events.appendEvent, {
       eventId,
-      tenantId: args.tenantId,
-      projectId: args.projectId,
+      tenantId: auth.tenantId,
+      projectId: auth.projectId,
       type: "CommandRequested",
       version: 1,
       ts: now,
@@ -54,8 +54,8 @@ export const requestCommand = mutation({
     // 2. Insert command read model
     await ctx.db.insert("commands", {
       commandId,
-      tenantId: args.tenantId,
-      projectId: args.projectId,
+      tenantId: auth.tenantId,
+      projectId: auth.projectId,
       status: "PENDING",
       lastEventId: eventId,
       updatedTs: now,
@@ -66,8 +66,8 @@ export const requestCommand = mutation({
     // 3. Create card in READY state
     await ctx.db.insert("cards", {
       cardId,
-      tenantId: args.tenantId,
-      projectId: args.projectId,
+      tenantId: auth.tenantId,
+      projectId: auth.projectId,
       state: "READY",
       priority,
       title: args.title,
@@ -90,8 +90,8 @@ export const requestCommand = mutation({
     // 4. Emit CardCreated event
     await ctx.runMutation(internal.events.appendEvent, {
       eventId: generateId("evt"),
-      tenantId: args.tenantId,
-      projectId: args.projectId,
+      tenantId: auth.tenantId,
+      projectId: auth.projectId,
       type: "CardCreated",
       version: 1,
       ts: now,
@@ -106,5 +106,5 @@ export const requestCommand = mutation({
     });
 
     return { commandId, cardId };
-  },
+  }),
 });

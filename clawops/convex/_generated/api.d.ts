@@ -16,6 +16,8 @@ import type * as decisions from "../decisions.js";
 import type * as events from "../events.js";
 import type * as http from "../http.js";
 import type * as myFunctions from "../myFunctions.js";
+import type * as projectMembers from "../projectMembers.js";
+import type * as projectSetup from "../projectSetup.js";
 import type * as projectors from "../projectors.js";
 import type * as sweeper from "../sweeper.js";
 
@@ -34,6 +36,8 @@ declare const fullApi: ApiFromModules<{
   events: typeof events;
   http: typeof http;
   myFunctions: typeof myFunctions;
+  projectMembers: typeof projectMembers;
+  projectSetup: typeof projectSetup;
   projectors: typeof projectors;
   sweeper: typeof sweeper;
 }>;

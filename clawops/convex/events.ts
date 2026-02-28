@@ -1,6 +1,8 @@
 import { v } from "convex/values";
-import { internalMutation, internalQuery } from "./_generated/server";
+import { mutation, internalMutation, internalQuery } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { eventType, producer } from "./schema";
+import { withAuth } from "./auth";
 
 // ── Secret Denylist (§14.2) ─────────────────────────────────────
 
@@ -169,4 +171,32 @@ export const listByTsRange = internalQuery({
 
     return filtered.slice(0, limit);
   },
+});
+
+// ── emitEvent (public, auth-gated — bot/owner only) ─────────────
+
+export const emitEvent = mutation({
+  args: {
+    projectId: v.string(),
+    eventId: v.string(),
+    type: eventType,
+    version: v.number(),
+    ts: v.number(),
+    correlationId: v.string(),
+    causationId: v.optional(v.string()),
+    commandId: v.optional(v.string()),
+    runId: v.optional(v.string()),
+    cardId: v.optional(v.string()),
+    decisionId: v.optional(v.string()),
+    idempotencyKey: v.optional(v.string()),
+    producer: producer,
+    tags: v.optional(v.any()),
+    payload: v.any(),
+  },
+  handler: withAuth({ roles: ["bot", "owner"] }, async (ctx, args, auth) => {
+    return await ctx.runMutation(internal.events.appendEvent, {
+      ...args,
+      tenantId: auth.tenantId,
+    });
+  }),
 });

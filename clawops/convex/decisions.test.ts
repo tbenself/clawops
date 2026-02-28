@@ -7,9 +7,11 @@ const modules = import.meta.glob("./**/*.*s");
 
 // ── Test helpers ────────────────────────────────────────────────
 
+const PROJECT_ID = "proj_test";
+const TENANT_ID = "tenant_test";
+
 const BASE_DECISION = {
-  tenantId: "tenant_test",
-  projectId: "proj_test",
+  projectId: PROJECT_ID,
   cardId: "card_test",
   commandId: "cmd_test",
   runId: "run_test",
@@ -26,20 +28,40 @@ function asUser(t: ReturnType<typeof convexTest>, subject: string) {
   return t.withIdentity({ subject });
 }
 
+async function setupProject(t: ReturnType<typeof convexTest>) {
+  const alice = asUser(t, "user:alice");
+  await alice.mutation(api.projectSetup.initProject, {
+    tenantId: TENANT_ID,
+    projectId: PROJECT_ID,
+    name: "Test Project",
+  });
+  return alice;
+}
+
+async function addOperator(t: ReturnType<typeof convexTest>, userId: string) {
+  const alice = asUser(t, "user:alice");
+  await alice.mutation(api.projectMembers.addMember, {
+    projectId: PROJECT_ID,
+    userId,
+    role: "operator",
+  });
+}
+
 // ── requestDecision ─────────────────────────────────────────────
 
 describe("requestDecision", () => {
   it("creates a PENDING decision and emits DecisionRequested", async () => {
     const t = convexTest(schema, modules);
-    const as = asUser(t, "user:alice");
+    const alice = await setupProject(t);
 
-    const result = await as.mutation(api.decisions.requestDecision, BASE_DECISION);
+    const result = await alice.mutation(api.decisions.requestDecision, BASE_DECISION);
 
     expect(result.decisionId).toMatch(/^dec_/);
     expect(result._id).toBeDefined();
 
     // Verify decision is in PENDING state
-    const detail = await as.query(api.decisions.decisionDetail, {
+    const detail = await alice.query(api.decisions.decisionDetail, {
+      projectId: PROJECT_ID,
       decisionId: result.decisionId,
     });
     expect(detail).not.toBeNull();
@@ -56,10 +78,10 @@ describe("requestDecision", () => {
 
   it("rejects decision with no options", async () => {
     const t = convexTest(schema, modules);
-    const as = asUser(t, "user:alice");
+    const alice = await setupProject(t);
 
     await expect(
-      as.mutation(api.decisions.requestDecision, {
+      alice.mutation(api.decisions.requestDecision, {
         ...BASE_DECISION,
         options: [],
       }),
@@ -68,10 +90,10 @@ describe("requestDecision", () => {
 
   it("rejects fallbackOption that doesn't match an option key", async () => {
     const t = convexTest(schema, modules);
-    const as = asUser(t, "user:alice");
+    const alice = await setupProject(t);
 
     await expect(
-      as.mutation(api.decisions.requestDecision, {
+      alice.mutation(api.decisions.requestDecision, {
         ...BASE_DECISION,
         fallbackOption: "nonexistent",
       }),
@@ -84,7 +106,7 @@ describe("requestDecision", () => {
 describe("claimDecision", () => {
   it("claims a PENDING decision", async () => {
     const t = convexTest(schema, modules);
-    const alice = asUser(t, "user:alice");
+    const alice = await setupProject(t);
 
     const { decisionId } = await alice.mutation(
       api.decisions.requestDecision,
@@ -92,6 +114,7 @@ describe("claimDecision", () => {
     );
 
     const result = await alice.mutation(api.decisions.claimDecision, {
+      projectId: PROJECT_ID,
       decisionId,
     });
 
@@ -101,7 +124,8 @@ describe("claimDecision", () => {
 
   it("rejects claim by another operator on an active claim", async () => {
     const t = convexTest(schema, modules);
-    const alice = asUser(t, "user:alice");
+    const alice = await setupProject(t);
+    await addOperator(t, "user:bob");
     const bob = asUser(t, "user:bob");
 
     const { decisionId } = await alice.mutation(
@@ -109,9 +133,13 @@ describe("claimDecision", () => {
       BASE_DECISION,
     );
 
-    await alice.mutation(api.decisions.claimDecision, { decisionId });
+    await alice.mutation(api.decisions.claimDecision, {
+      projectId: PROJECT_ID,
+      decisionId,
+    });
 
     const result = await bob.mutation(api.decisions.claimDecision, {
+      projectId: PROJECT_ID,
       decisionId,
     });
 
@@ -121,15 +149,19 @@ describe("claimDecision", () => {
 
   it("allows re-claim by the same operator", async () => {
     const t = convexTest(schema, modules);
-    const alice = asUser(t, "user:alice");
+    const alice = await setupProject(t);
 
     const { decisionId } = await alice.mutation(
       api.decisions.requestDecision,
       BASE_DECISION,
     );
 
-    await alice.mutation(api.decisions.claimDecision, { decisionId });
+    await alice.mutation(api.decisions.claimDecision, {
+      projectId: PROJECT_ID,
+      decisionId,
+    });
     const result = await alice.mutation(api.decisions.claimDecision, {
+      projectId: PROJECT_ID,
       decisionId,
     });
 
@@ -138,7 +170,7 @@ describe("claimDecision", () => {
 
   it("rejects claim on already-rendered decision", async () => {
     const t = convexTest(schema, modules);
-    const alice = asUser(t, "user:alice");
+    const alice = await setupProject(t);
 
     const { decisionId } = await alice.mutation(
       api.decisions.requestDecision,
@@ -146,18 +178,22 @@ describe("claimDecision", () => {
     );
 
     await alice.mutation(api.decisions.renderDecision, {
+      projectId: PROJECT_ID,
       decisionId,
       optionKey: "approve",
     });
 
     await expect(
-      alice.mutation(api.decisions.claimDecision, { decisionId }),
+      alice.mutation(api.decisions.claimDecision, {
+        projectId: PROJECT_ID,
+        decisionId,
+      }),
     ).rejects.toThrow("Cannot claim decision in state RENDERED");
   });
 
   it("rejects unauthenticated claim", async () => {
     const t = convexTest(schema, modules);
-    const alice = asUser(t, "user:alice");
+    const alice = await setupProject(t);
 
     const { decisionId } = await alice.mutation(
       api.decisions.requestDecision,
@@ -166,20 +202,26 @@ describe("claimDecision", () => {
 
     // No identity
     await expect(
-      t.mutation(api.decisions.claimDecision, { decisionId }),
-    ).rejects.toThrow("Authentication required");
+      t.mutation(api.decisions.claimDecision, {
+        projectId: PROJECT_ID,
+        decisionId,
+      }),
+    ).rejects.toThrow("Unauthenticated");
   });
 
   it("emits DecisionClaimed event", async () => {
     const t = convexTest(schema, modules);
-    const alice = asUser(t, "user:alice");
+    const alice = await setupProject(t);
 
     const { decisionId } = await alice.mutation(
       api.decisions.requestDecision,
       BASE_DECISION,
     );
 
-    await alice.mutation(api.decisions.claimDecision, { decisionId });
+    await alice.mutation(api.decisions.claimDecision, {
+      projectId: PROJECT_ID,
+      decisionId,
+    });
 
     const events = await t.query(internal.events.listByType, {
       type: "DecisionClaimed",
@@ -194,15 +236,19 @@ describe("claimDecision", () => {
 describe("renewDecisionClaim", () => {
   it("extends claim for the owning operator", async () => {
     const t = convexTest(schema, modules);
-    const alice = asUser(t, "user:alice");
+    const alice = await setupProject(t);
 
     const { decisionId } = await alice.mutation(
       api.decisions.requestDecision,
       BASE_DECISION,
     );
 
-    await alice.mutation(api.decisions.claimDecision, { decisionId });
+    await alice.mutation(api.decisions.claimDecision, {
+      projectId: PROJECT_ID,
+      decisionId,
+    });
     const result = await alice.mutation(api.decisions.renewDecisionClaim, {
+      projectId: PROJECT_ID,
       decisionId,
     });
 
@@ -211,7 +257,8 @@ describe("renewDecisionClaim", () => {
 
   it("rejects renewal by a different operator", async () => {
     const t = convexTest(schema, modules);
-    const alice = asUser(t, "user:alice");
+    const alice = await setupProject(t);
+    await addOperator(t, "user:bob");
     const bob = asUser(t, "user:bob");
 
     const { decisionId } = await alice.mutation(
@@ -219,16 +266,22 @@ describe("renewDecisionClaim", () => {
       BASE_DECISION,
     );
 
-    await alice.mutation(api.decisions.claimDecision, { decisionId });
+    await alice.mutation(api.decisions.claimDecision, {
+      projectId: PROJECT_ID,
+      decisionId,
+    });
 
     await expect(
-      bob.mutation(api.decisions.renewDecisionClaim, { decisionId }),
+      bob.mutation(api.decisions.renewDecisionClaim, {
+        projectId: PROJECT_ID,
+        decisionId,
+      }),
     ).rejects.toThrow("not claimed by you");
   });
 
   it("rejects renewal on unclaimed decision", async () => {
     const t = convexTest(schema, modules);
-    const alice = asUser(t, "user:alice");
+    const alice = await setupProject(t);
 
     const { decisionId } = await alice.mutation(
       api.decisions.requestDecision,
@@ -236,26 +289,35 @@ describe("renewDecisionClaim", () => {
     );
 
     await expect(
-      alice.mutation(api.decisions.renewDecisionClaim, { decisionId }),
+      alice.mutation(api.decisions.renewDecisionClaim, {
+        projectId: PROJECT_ID,
+        decisionId,
+      }),
     ).rejects.toThrow("not claimed by you");
   });
 
   it("does not emit an event", async () => {
     const t = convexTest(schema, modules);
-    const alice = asUser(t, "user:alice");
+    const alice = await setupProject(t);
 
     const { decisionId } = await alice.mutation(
       api.decisions.requestDecision,
       BASE_DECISION,
     );
 
-    await alice.mutation(api.decisions.claimDecision, { decisionId });
+    await alice.mutation(api.decisions.claimDecision, {
+      projectId: PROJECT_ID,
+      decisionId,
+    });
 
     const eventsBefore = await t.query(internal.events.listByType, {
       type: "DecisionClaimed",
     });
 
-    await alice.mutation(api.decisions.renewDecisionClaim, { decisionId });
+    await alice.mutation(api.decisions.renewDecisionClaim, {
+      projectId: PROJECT_ID,
+      decisionId,
+    });
 
     const eventsAfter = await t.query(internal.events.listByType, {
       type: "DecisionClaimed",
@@ -271,7 +333,7 @@ describe("renewDecisionClaim", () => {
 describe("renderDecision", () => {
   it("renders a PENDING decision", async () => {
     const t = convexTest(schema, modules);
-    const alice = asUser(t, "user:alice");
+    const alice = await setupProject(t);
 
     const { decisionId } = await alice.mutation(
       api.decisions.requestDecision,
@@ -279,6 +341,7 @@ describe("renderDecision", () => {
     );
 
     const result = await alice.mutation(api.decisions.renderDecision, {
+      projectId: PROJECT_ID,
       decisionId,
       optionKey: "approve",
       note: "Looks good",
@@ -289,6 +352,7 @@ describe("renderDecision", () => {
 
     // Verify state updated
     const detail = await alice.query(api.decisions.decisionDetail, {
+      projectId: PROJECT_ID,
       decisionId,
     });
     expect(detail!.state).toBe("RENDERED");
@@ -305,16 +369,20 @@ describe("renderDecision", () => {
 
   it("renders a CLAIMED decision by the claim owner", async () => {
     const t = convexTest(schema, modules);
-    const alice = asUser(t, "user:alice");
+    const alice = await setupProject(t);
 
     const { decisionId } = await alice.mutation(
       api.decisions.requestDecision,
       BASE_DECISION,
     );
 
-    await alice.mutation(api.decisions.claimDecision, { decisionId });
+    await alice.mutation(api.decisions.claimDecision, {
+      projectId: PROJECT_ID,
+      decisionId,
+    });
 
     const result = await alice.mutation(api.decisions.renderDecision, {
+      projectId: PROJECT_ID,
       decisionId,
       optionKey: "reject",
     });
@@ -323,6 +391,7 @@ describe("renderDecision", () => {
 
     // Claim fields should be cleared
     const detail = await alice.query(api.decisions.decisionDetail, {
+      projectId: PROJECT_ID,
       decisionId,
     });
     expect(detail!.claimedBy).toBeUndefined();
@@ -331,7 +400,8 @@ describe("renderDecision", () => {
 
   it("rejects render of already-rendered decision (race condition)", async () => {
     const t = convexTest(schema, modules);
-    const alice = asUser(t, "user:alice");
+    const alice = await setupProject(t);
+    await addOperator(t, "user:bob");
     const bob = asUser(t, "user:bob");
 
     const { decisionId } = await alice.mutation(
@@ -341,12 +411,14 @@ describe("renderDecision", () => {
 
     // Alice renders first
     await alice.mutation(api.decisions.renderDecision, {
+      projectId: PROJECT_ID,
       decisionId,
       optionKey: "approve",
     });
 
     // Bob tries to render — gets rejection status (not thrown error)
     const result = await bob.mutation(api.decisions.renderDecision, {
+      projectId: PROJECT_ID,
       decisionId,
       optionKey: "reject",
     });
@@ -365,7 +437,8 @@ describe("renderDecision", () => {
 
   it("rejects render by non-claimant on a CLAIMED decision", async () => {
     const t = convexTest(schema, modules);
-    const alice = asUser(t, "user:alice");
+    const alice = await setupProject(t);
+    await addOperator(t, "user:bob");
     const bob = asUser(t, "user:bob");
 
     const { decisionId } = await alice.mutation(
@@ -373,9 +446,13 @@ describe("renderDecision", () => {
       BASE_DECISION,
     );
 
-    await alice.mutation(api.decisions.claimDecision, { decisionId });
+    await alice.mutation(api.decisions.claimDecision, {
+      projectId: PROJECT_ID,
+      decisionId,
+    });
 
     const result = await bob.mutation(api.decisions.renderDecision, {
+      projectId: PROJECT_ID,
       decisionId,
       optionKey: "approve",
     });
@@ -392,7 +469,7 @@ describe("renderDecision", () => {
 
   it("rejects invalid option key", async () => {
     const t = convexTest(schema, modules);
-    const alice = asUser(t, "user:alice");
+    const alice = await setupProject(t);
 
     const { decisionId } = await alice.mutation(
       api.decisions.requestDecision,
@@ -401,6 +478,7 @@ describe("renderDecision", () => {
 
     await expect(
       alice.mutation(api.decisions.renderDecision, {
+        projectId: PROJECT_ID,
         decisionId,
         optionKey: "nonexistent",
       }),
@@ -409,7 +487,7 @@ describe("renderDecision", () => {
 
   it("rejects unauthenticated render", async () => {
     const t = convexTest(schema, modules);
-    const alice = asUser(t, "user:alice");
+    const alice = await setupProject(t);
 
     const { decisionId } = await alice.mutation(
       api.decisions.requestDecision,
@@ -418,15 +496,17 @@ describe("renderDecision", () => {
 
     await expect(
       t.mutation(api.decisions.renderDecision, {
+        projectId: PROJECT_ID,
         decisionId,
         optionKey: "approve",
       }),
-    ).rejects.toThrow("Authentication required");
+    ).rejects.toThrow("Unauthenticated");
   });
 
   it("exactly one DecisionRendered event per decision", async () => {
     const t = convexTest(schema, modules);
-    const alice = asUser(t, "user:alice");
+    const alice = await setupProject(t);
+    await addOperator(t, "user:bob");
     const bob = asUser(t, "user:bob");
 
     const { decisionId } = await alice.mutation(
@@ -436,12 +516,14 @@ describe("renderDecision", () => {
 
     // Alice renders
     await alice.mutation(api.decisions.renderDecision, {
+      projectId: PROJECT_ID,
       decisionId,
       optionKey: "approve",
     });
 
     // Bob tries — gets rejected
     const result = await bob.mutation(api.decisions.renderDecision, {
+      projectId: PROJECT_ID,
       decisionId,
       optionKey: "reject",
     });
@@ -460,7 +542,7 @@ describe("renderDecision", () => {
 describe("pendingDecisions", () => {
   it("returns PENDING and CLAIMED decisions sorted by urgency", async () => {
     const t = convexTest(schema, modules);
-    const alice = asUser(t, "user:alice");
+    const alice = await setupProject(t);
 
     // Create decisions with different urgencies
     await alice.mutation(api.decisions.requestDecision, {
@@ -486,11 +568,12 @@ describe("pendingDecisions", () => {
 
     // Claim the urgent one
     await alice.mutation(api.decisions.claimDecision, {
+      projectId: PROJECT_ID,
       decisionId: urgentId,
     });
 
     const result = await alice.query(api.decisions.pendingDecisions, {
-      projectId: "proj_test",
+      projectId: PROJECT_ID,
     });
 
     expect(result).toHaveLength(3);
@@ -502,7 +585,7 @@ describe("pendingDecisions", () => {
 
   it("excludes rendered decisions", async () => {
     const t = convexTest(schema, modules);
-    const alice = asUser(t, "user:alice");
+    const alice = await setupProject(t);
 
     const { decisionId } = await alice.mutation(
       api.decisions.requestDecision,
@@ -510,12 +593,13 @@ describe("pendingDecisions", () => {
     );
 
     await alice.mutation(api.decisions.renderDecision, {
+      projectId: PROJECT_ID,
       decisionId,
       optionKey: "approve",
     });
 
     const result = await alice.query(api.decisions.pendingDecisions, {
-      projectId: "proj_test",
+      projectId: PROJECT_ID,
     });
 
     expect(result).toHaveLength(0);
@@ -523,7 +607,7 @@ describe("pendingDecisions", () => {
 
   it("filters by urgency when provided", async () => {
     const t = convexTest(schema, modules);
-    const alice = asUser(t, "user:alice");
+    const alice = await setupProject(t);
 
     await alice.mutation(api.decisions.requestDecision, {
       ...BASE_DECISION,
@@ -538,7 +622,7 @@ describe("pendingDecisions", () => {
     });
 
     const result = await alice.query(api.decisions.pendingDecisions, {
-      projectId: "proj_test",
+      projectId: PROJECT_ID,
       urgency: "now",
     });
 
@@ -552,7 +636,7 @@ describe("pendingDecisions", () => {
 describe("decisionDetail", () => {
   it("returns full decision with context bundle", async () => {
     const t = convexTest(schema, modules);
-    const alice = asUser(t, "user:alice");
+    const alice = await setupProject(t);
 
     const { decisionId } = await alice.mutation(
       api.decisions.requestDecision,
@@ -560,6 +644,7 @@ describe("decisionDetail", () => {
     );
 
     const detail = await alice.query(api.decisions.decisionDetail, {
+      projectId: PROJECT_ID,
       decisionId,
     });
 
@@ -572,9 +657,10 @@ describe("decisionDetail", () => {
 
   it("returns null for unknown decisionId", async () => {
     const t = convexTest(schema, modules);
-    const alice = asUser(t, "user:alice");
+    const alice = await setupProject(t);
 
     const detail = await alice.query(api.decisions.decisionDetail, {
+      projectId: PROJECT_ID,
       decisionId: "dec_nonexistent",
     });
 

@@ -6,6 +6,7 @@ import {
   sourceThread,
   urgencyLevel,
 } from "./schema";
+import { withAuth, withAuthQ, ALL_ROLES } from "./auth";
 
 // Default claim duration: 5 minutes (§6.6)
 const DECISION_CLAIM_MS = 5 * 60 * 1000;
@@ -18,19 +19,10 @@ function generateId(prefix: string): string {
   return `${prefix}_${ts}${rand}`;
 }
 
-async function requireAuth(ctx: { auth: { getUserIdentity: () => Promise<{ subject?: string; tokenIdentifier?: string } | null> } }) {
-  const identity = await ctx.auth.getUserIdentity();
-  if (!identity) {
-    throw new Error("Authentication required");
-  }
-  return identity.subject ?? identity.tokenIdentifier!;
-}
-
-// ── requestDecision ─────────────────────────────────────────────
+// ── requestDecision (bot/owner) ─────────────────────────────────
 
 export const requestDecision = mutation({
   args: {
-    tenantId: v.string(),
     projectId: v.string(),
     cardId: v.string(),
     commandId: v.string(),
@@ -46,7 +38,7 @@ export const requestDecision = mutation({
     expiresAt: v.optional(v.number()),
     fallbackOption: v.optional(v.string()),
   },
-  handler: async (ctx, args) => {
+  handler: withAuth({ roles: ["bot", "owner"] }, async (ctx, args, auth) => {
     if (args.options.length === 0) {
       throw new Error("Decision must have at least one option");
     }
@@ -65,8 +57,8 @@ export const requestDecision = mutation({
 
     const docId = await ctx.db.insert("decisions", {
       decisionId,
-      tenantId: args.tenantId,
-      projectId: args.projectId,
+      tenantId: auth.tenantId,
+      projectId: auth.projectId,
       cardId: args.cardId,
       commandId: args.commandId,
       runId: args.runId,
@@ -84,8 +76,8 @@ export const requestDecision = mutation({
 
     await ctx.runMutation(internal.events.appendEvent, {
       eventId: generateId("evt"),
-      tenantId: args.tenantId,
-      projectId: args.projectId,
+      tenantId: auth.tenantId,
+      projectId: auth.projectId,
       type: "DecisionRequested",
       version: 1,
       ts: now,
@@ -106,24 +98,28 @@ export const requestDecision = mutation({
     });
 
     return { decisionId, _id: docId };
-  },
+  }),
 });
 
-// ── claimDecision (§6.6) ────────────────────────────────────────
+// ── claimDecision (§6.6, operator/owner) ────────────────────────
 
 export const claimDecision = mutation({
   args: {
+    projectId: v.string(),
     decisionId: v.string(),
   },
-  handler: async (ctx, args) => {
-    const userId = await requireAuth(ctx);
-
+  handler: withAuth({ roles: ["operator", "owner"] }, async (ctx, args, auth) => {
     const decision = await ctx.db
       .query("decisions")
       .withIndex("by_decisionId", (q) => q.eq("decisionId", args.decisionId))
       .unique();
 
     if (!decision) {
+      throw new Error("Decision not found");
+    }
+
+    // Cross-project check
+    if (decision.projectId !== auth.projectId) {
       throw new Error("Decision not found");
     }
 
@@ -136,7 +132,7 @@ export const claimDecision = mutation({
     // If claimed by someone else and claim hasn't expired
     if (
       decision.claimedBy !== undefined &&
-      decision.claimedBy !== userId &&
+      decision.claimedBy !== auth.userId &&
       decision.claimedUntil !== undefined &&
       decision.claimedUntil > now
     ) {
@@ -151,14 +147,14 @@ export const claimDecision = mutation({
 
     await ctx.db.patch(decision._id, {
       state: "CLAIMED",
-      claimedBy: userId,
+      claimedBy: auth.userId,
       claimedUntil,
     });
 
     await ctx.runMutation(internal.events.appendEvent, {
       eventId: generateId("evt"),
-      tenantId: decision.tenantId,
-      projectId: decision.projectId,
+      tenantId: auth.tenantId,
+      projectId: auth.projectId,
       type: "DecisionClaimed",
       version: 1,
       ts: now,
@@ -169,24 +165,23 @@ export const claimDecision = mutation({
       decisionId: decision.decisionId,
       producer: { service: "clawops-decisions", version: "0.1.0" },
       payload: {
-        claimedBy: userId,
+        claimedBy: auth.userId,
         claimedUntil,
       },
     });
 
     return { status: "claimed" as const, claimedUntil };
-  },
+  }),
 });
 
-// ── renewDecisionClaim (§6.6) ───────────────────────────────────
+// ── renewDecisionClaim (§6.6, operator/owner) ───────────────────
 
 export const renewDecisionClaim = mutation({
   args: {
+    projectId: v.string(),
     decisionId: v.string(),
   },
-  handler: async (ctx, args) => {
-    const userId = await requireAuth(ctx);
-
+  handler: withAuth({ roles: ["operator", "owner"] }, async (ctx, args, auth) => {
     const decision = await ctx.db
       .query("decisions")
       .withIndex("by_decisionId", (q) => q.eq("decisionId", args.decisionId))
@@ -196,7 +191,11 @@ export const renewDecisionClaim = mutation({
       throw new Error("Decision not found");
     }
 
-    if (decision.state !== "CLAIMED" || decision.claimedBy !== userId) {
+    if (decision.projectId !== auth.projectId) {
+      throw new Error("Decision not found");
+    }
+
+    if (decision.state !== "CLAIMED" || decision.claimedBy !== auth.userId) {
       throw new Error("Cannot renew: decision is not claimed by you");
     }
 
@@ -206,26 +205,29 @@ export const renewDecisionClaim = mutation({
 
     // No event emitted — renewals are high-frequency and low-signal (§6.6)
     return { claimedUntil };
-  },
+  }),
 });
 
-// ── renderDecision (§6.5 — compare-and-set) ─────────────────────
+// ── renderDecision (§6.5 — compare-and-set, operator/owner) ────
 
 export const renderDecision = mutation({
   args: {
+    projectId: v.string(),
     decisionId: v.string(),
     optionKey: v.string(),
     note: v.optional(v.string()),
   },
-  handler: async (ctx, args) => {
-    const userId = await requireAuth(ctx);
-
+  handler: withAuth({ roles: ["operator", "owner"] }, async (ctx, args, auth) => {
     const decision = await ctx.db
       .query("decisions")
       .withIndex("by_decisionId", (q) => q.eq("decisionId", args.decisionId))
       .unique();
 
     if (!decision) {
+      throw new Error("Decision not found");
+    }
+
+    if (decision.projectId !== auth.projectId) {
       throw new Error("Decision not found");
     }
 
@@ -236,8 +238,8 @@ export const renderDecision = mutation({
     if (decision.state !== "PENDING" && decision.state !== "CLAIMED") {
       await ctx.runMutation(internal.events.appendEvent, {
         eventId: generateId("evt"),
-        tenantId: decision.tenantId,
-        projectId: decision.projectId,
+        tenantId: auth.tenantId,
+        projectId: auth.projectId,
         type: "DecisionRenderRejected",
         version: 1,
         ts: now,
@@ -249,7 +251,7 @@ export const renderDecision = mutation({
         producer: { service: "clawops-decisions", version: "0.1.0" },
         payload: {
           attemptedOption: args.optionKey,
-          attemptedBy: userId,
+          attemptedBy: auth.userId,
           currentState: decision.state,
         },
       });
@@ -264,12 +266,12 @@ export const renderDecision = mutation({
     if (
       decision.state === "CLAIMED" &&
       decision.claimedBy !== undefined &&
-      decision.claimedBy !== userId
+      decision.claimedBy !== auth.userId
     ) {
       await ctx.runMutation(internal.events.appendEvent, {
         eventId: generateId("evt"),
-        tenantId: decision.tenantId,
-        projectId: decision.projectId,
+        tenantId: auth.tenantId,
+        projectId: auth.projectId,
         type: "DecisionRenderRejected",
         version: 1,
         ts: now,
@@ -281,7 +283,7 @@ export const renderDecision = mutation({
         producer: { service: "clawops-decisions", version: "0.1.0" },
         payload: {
           attemptedOption: args.optionKey,
-          attemptedBy: userId,
+          attemptedBy: auth.userId,
           currentState: decision.state,
           reason: "claimed_by_another",
         },
@@ -302,7 +304,7 @@ export const renderDecision = mutation({
     await ctx.db.patch(decision._id, {
       state: "RENDERED",
       renderedOption: args.optionKey,
-      renderedBy: userId,
+      renderedBy: auth.userId,
       renderedAt: now,
       // Clear claim fields
       claimedBy: undefined,
@@ -311,8 +313,8 @@ export const renderDecision = mutation({
 
     await ctx.runMutation(internal.events.appendEvent, {
       eventId: generateId("evt"),
-      tenantId: decision.tenantId,
-      projectId: decision.projectId,
+      tenantId: auth.tenantId,
+      projectId: auth.projectId,
       type: "DecisionRendered",
       version: 1,
       ts: now,
@@ -324,23 +326,23 @@ export const renderDecision = mutation({
       producer: { service: "clawops-decisions", version: "0.1.0" },
       payload: {
         selectedOption: args.optionKey,
-        renderedBy: userId,
+        renderedBy: auth.userId,
         note: args.note,
       },
     });
 
     return { status: "rendered" as const, optionKey: args.optionKey };
-  },
+  }),
 });
 
-// ── pendingDecisions query ──────────────────────────────────────
+// ── pendingDecisions query (any role) ───────────────────────────
 
 export const pendingDecisions = query({
   args: {
     projectId: v.string(),
     urgency: v.optional(urgencyLevel),
   },
-  handler: async (ctx, args) => {
+  handler: withAuthQ({ roles: ALL_ROLES }, async (ctx, args, _auth) => {
     // Fetch PENDING decisions
     const pending = await ctx.db
       .query("decisions")
@@ -373,22 +375,26 @@ export const pendingDecisions = query({
     });
 
     return all;
-  },
+  }),
 });
 
-// ── decisionDetail query ────────────────────────────────────────
+// ── decisionDetail query (any role) ─────────────────────────────
 
 export const decisionDetail = query({
   args: {
+    projectId: v.string(),
     decisionId: v.string(),
   },
-  handler: async (ctx, args) => {
+  handler: withAuthQ({ roles: ALL_ROLES }, async (ctx, args, auth) => {
     const decision = await ctx.db
       .query("decisions")
       .withIndex("by_decisionId", (q) => q.eq("decisionId", args.decisionId))
       .unique();
 
     if (!decision) return null;
+
+    // Cross-project check
+    if (decision.projectId !== auth.projectId) return null;
 
     // Assemble context bundle (§6.2) at read time
     // Fetch the originating command
@@ -431,5 +437,5 @@ export const decisionDetail = query({
         })),
       },
     };
-  },
+  }),
 });

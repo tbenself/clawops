@@ -7,13 +7,29 @@ const modules = import.meta.glob("./**/*.*s");
 
 // ── Test helpers ────────────────────────────────────────────────
 
+const PROJECT_ID = "proj_test";
+const TENANT_ID = "tenant_test";
+
 function asUser(t: ReturnType<typeof convexTest>, subject: string) {
   return t.withIdentity({ subject });
 }
 
+async function setupProject(
+  t: ReturnType<typeof convexTest>,
+  userId = "user:alice",
+  projectId = PROJECT_ID,
+) {
+  const user = asUser(t, userId);
+  await user.mutation(api.projectSetup.initProject, {
+    tenantId: TENANT_ID,
+    projectId,
+    name: "Test Project",
+  });
+  return user;
+}
+
 const BASE_CARD = {
-  tenantId: "tenant_test",
-  projectId: "proj_test",
+  projectId: PROJECT_ID,
   commandId: "cmd_test",
   correlationId: "corr_test",
   title: "Test card",
@@ -25,8 +41,7 @@ const BASE_CARD = {
 };
 
 const BASE_COMMAND = {
-  tenantId: "tenant_test",
-  projectId: "proj_test",
+  projectId: PROJECT_ID,
   correlationId: "corr_test",
   title: "Test command",
   commandSpec: {
@@ -45,7 +60,7 @@ const BASE_COMMAND = {
 describe("createCard", () => {
   it("creates a card in READY state and emits CardCreated", async () => {
     const t = convexTest(schema, modules);
-    const alice = asUser(t, "user:alice");
+    const alice = await setupProject(t);
 
     const result = await alice.mutation(api.cards.createCard, BASE_CARD);
 
@@ -54,7 +69,7 @@ describe("createCard", () => {
 
     // Verify card is in READY state
     const cards = await alice.query(api.cards.cardsByState, {
-      projectId: "proj_test",
+      projectId: PROJECT_ID,
       state: "READY",
     });
     expect(cards).toHaveLength(1);
@@ -78,7 +93,7 @@ describe("createCard", () => {
 describe("transitionCard", () => {
   it("allows READY → RUNNING and increments attempt", async () => {
     const t = convexTest(schema, modules);
-    const alice = asUser(t, "user:alice");
+    const alice = await setupProject(t);
 
     const { cardId } = await alice.mutation(api.cards.createCard, BASE_CARD);
 
@@ -95,7 +110,7 @@ describe("transitionCard", () => {
 
     // Verify state and attempt
     const cards = await alice.query(api.cards.cardsByState, {
-      projectId: "proj_test",
+      projectId: PROJECT_ID,
       state: "RUNNING",
     });
     expect(cards).toHaveLength(1);
@@ -112,7 +127,7 @@ describe("transitionCard", () => {
 
   it("allows RUNNING → DONE", async () => {
     const t = convexTest(schema, modules);
-    const alice = asUser(t, "user:alice");
+    const alice = await setupProject(t);
 
     const { cardId } = await alice.mutation(api.cards.createCard, BASE_CARD);
     await t.mutation(internal.cards.transitionCard, {
@@ -130,7 +145,7 @@ describe("transitionCard", () => {
     });
 
     const cards = await alice.query(api.cards.cardsByState, {
-      projectId: "proj_test",
+      projectId: PROJECT_ID,
       state: "DONE",
     });
     expect(cards).toHaveLength(1);
@@ -138,7 +153,7 @@ describe("transitionCard", () => {
 
   it("allows RUNNING → NEEDS_DECISION", async () => {
     const t = convexTest(schema, modules);
-    const alice = asUser(t, "user:alice");
+    const alice = await setupProject(t);
 
     const { cardId } = await alice.mutation(api.cards.createCard, BASE_CARD);
     await t.mutation(internal.cards.transitionCard, {
@@ -157,7 +172,7 @@ describe("transitionCard", () => {
     });
 
     const cards = await alice.query(api.cards.cardsByState, {
-      projectId: "proj_test",
+      projectId: PROJECT_ID,
       state: "NEEDS_DECISION",
     });
     expect(cards).toHaveLength(1);
@@ -165,7 +180,7 @@ describe("transitionCard", () => {
 
   it("allows NEEDS_DECISION → RUNNING after decision rendered", async () => {
     const t = convexTest(schema, modules);
-    const alice = asUser(t, "user:alice");
+    const alice = await setupProject(t);
 
     const { cardId } = await alice.mutation(api.cards.createCard, BASE_CARD);
     await t.mutation(internal.cards.transitionCard, {
@@ -189,7 +204,7 @@ describe("transitionCard", () => {
     });
 
     const cards = await alice.query(api.cards.cardsByState, {
-      projectId: "proj_test",
+      projectId: PROJECT_ID,
       state: "RUNNING",
     });
     expect(cards).toHaveLength(1);
@@ -199,7 +214,7 @@ describe("transitionCard", () => {
 
   it("allows RUNNING → FAILED", async () => {
     const t = convexTest(schema, modules);
-    const alice = asUser(t, "user:alice");
+    const alice = await setupProject(t);
 
     const { cardId } = await alice.mutation(api.cards.createCard, BASE_CARD);
     await t.mutation(internal.cards.transitionCard, {
@@ -217,7 +232,7 @@ describe("transitionCard", () => {
     });
 
     const cards = await alice.query(api.cards.cardsByState, {
-      projectId: "proj_test",
+      projectId: PROJECT_ID,
       state: "FAILED",
     });
     expect(cards).toHaveLength(1);
@@ -225,7 +240,7 @@ describe("transitionCard", () => {
 
   it("allows RUNNING → RETRY_SCHEDULED → READY", async () => {
     const t = convexTest(schema, modules);
-    const alice = asUser(t, "user:alice");
+    const alice = await setupProject(t);
 
     const { cardId } = await alice.mutation(api.cards.createCard, BASE_CARD);
     await t.mutation(internal.cards.transitionCard, {
@@ -246,7 +261,7 @@ describe("transitionCard", () => {
 
     // Verify retryAtTs is set
     let cards = await alice.query(api.cards.cardsByState, {
-      projectId: "proj_test",
+      projectId: PROJECT_ID,
       state: "RETRY_SCHEDULED",
     });
     expect(cards).toHaveLength(1);
@@ -261,7 +276,7 @@ describe("transitionCard", () => {
     });
 
     cards = await alice.query(api.cards.cardsByState, {
-      projectId: "proj_test",
+      projectId: PROJECT_ID,
       state: "READY",
     });
     expect(cards).toHaveLength(1);
@@ -270,7 +285,7 @@ describe("transitionCard", () => {
 
   it("allows NEEDS_DECISION → FAILED (expired, no fallback)", async () => {
     const t = convexTest(schema, modules);
-    const alice = asUser(t, "user:alice");
+    const alice = await setupProject(t);
 
     const { cardId } = await alice.mutation(api.cards.createCard, BASE_CARD);
     await t.mutation(internal.cards.transitionCard, {
@@ -294,7 +309,7 @@ describe("transitionCard", () => {
     });
 
     const cards = await alice.query(api.cards.cardsByState, {
-      projectId: "proj_test",
+      projectId: PROJECT_ID,
       state: "FAILED",
     });
     expect(cards).toHaveLength(1);
@@ -304,7 +319,7 @@ describe("transitionCard", () => {
 
   it("rejects READY → DONE (must go through RUNNING)", async () => {
     const t = convexTest(schema, modules);
-    const alice = asUser(t, "user:alice");
+    const alice = await setupProject(t);
 
     const { cardId } = await alice.mutation(api.cards.createCard, BASE_CARD);
 
@@ -320,7 +335,7 @@ describe("transitionCard", () => {
 
   it("rejects DONE → RUNNING (terminal state)", async () => {
     const t = convexTest(schema, modules);
-    const alice = asUser(t, "user:alice");
+    const alice = await setupProject(t);
 
     const { cardId } = await alice.mutation(api.cards.createCard, BASE_CARD);
     await t.mutation(internal.cards.transitionCard, {
@@ -348,7 +363,7 @@ describe("transitionCard", () => {
 
   it("rejects FAILED → READY (terminal state)", async () => {
     const t = convexTest(schema, modules);
-    const alice = asUser(t, "user:alice");
+    const alice = await setupProject(t);
 
     const { cardId } = await alice.mutation(api.cards.createCard, BASE_CARD);
     await t.mutation(internal.cards.transitionCard, {
@@ -393,7 +408,7 @@ describe("transitionCard", () => {
 describe("cardsByState", () => {
   it("returns cards filtered by state ordered by priority", async () => {
     const t = convexTest(schema, modules);
-    const alice = asUser(t, "user:alice");
+    const alice = await setupProject(t);
 
     // Lower priority number = higher priority
     await alice.mutation(api.cards.createCard, {
@@ -408,7 +423,7 @@ describe("cardsByState", () => {
     });
 
     const cards = await alice.query(api.cards.cardsByState, {
-      projectId: "proj_test",
+      projectId: PROJECT_ID,
       state: "READY",
     });
 
@@ -420,7 +435,8 @@ describe("cardsByState", () => {
 
   it("scopes to projectId", async () => {
     const t = convexTest(schema, modules);
-    const alice = asUser(t, "user:alice");
+    const alice = await setupProject(t, "user:alice", "proj_1");
+    await setupProject(t, "user:alice", "proj_2");
 
     await alice.mutation(api.cards.createCard, {
       ...BASE_CARD,
@@ -445,7 +461,7 @@ describe("cardsByState", () => {
 describe("eventChain", () => {
   it("returns full event chain ordered by ts", async () => {
     const t = convexTest(schema, modules);
-    const alice = asUser(t, "user:alice");
+    const alice = await setupProject(t);
 
     const { cardId } = await alice.mutation(api.cards.createCard, {
       ...BASE_CARD,
@@ -467,7 +483,7 @@ describe("eventChain", () => {
     });
 
     const chain = await alice.query(api.cards.eventChain, {
-      projectId: "proj_test",
+      projectId: PROJECT_ID,
       correlationId: "corr_chain",
     });
 
@@ -480,7 +496,7 @@ describe("eventChain", () => {
 
   it("scopes to projectId and correlationId", async () => {
     const t = convexTest(schema, modules);
-    const alice = asUser(t, "user:alice");
+    const alice = await setupProject(t);
 
     await alice.mutation(api.cards.createCard, {
       ...BASE_CARD,
@@ -492,7 +508,7 @@ describe("eventChain", () => {
     });
 
     const chain = await alice.query(api.cards.eventChain, {
-      projectId: "proj_test",
+      projectId: PROJECT_ID,
       correlationId: "corr_a",
     });
 
@@ -506,7 +522,7 @@ describe("eventChain", () => {
 describe("requestCommand", () => {
   it("creates command read model, card, and emits events", async () => {
     const t = convexTest(schema, modules);
-    const alice = asUser(t, "user:alice");
+    const alice = await setupProject(t);
 
     const result = await alice.mutation(api.commands.requestCommand, BASE_COMMAND);
 
@@ -529,7 +545,7 @@ describe("requestCommand", () => {
 
     // Verify card is in READY state
     const cards = await alice.query(api.cards.cardsByState, {
-      projectId: "proj_test",
+      projectId: PROJECT_ID,
       state: "READY",
     });
     expect(cards).toHaveLength(1);
@@ -539,7 +555,7 @@ describe("requestCommand", () => {
 
   it("full automated happy path: command → run → done", async () => {
     const t = convexTest(schema, modules);
-    const alice = asUser(t, "user:alice");
+    const alice = await setupProject(t);
 
     // 1. Request command
     const { commandId, cardId } = await alice.mutation(
@@ -567,7 +583,7 @@ describe("requestCommand", () => {
 
     // Verify final state
     const doneCards = await alice.query(api.cards.cardsByState, {
-      projectId: "proj_test",
+      projectId: PROJECT_ID,
       state: "DONE",
     });
     expect(doneCards).toHaveLength(1);
@@ -575,7 +591,7 @@ describe("requestCommand", () => {
 
     // Verify full event chain
     const chain = await alice.query(api.cards.eventChain, {
-      projectId: "proj_test",
+      projectId: PROJECT_ID,
       correlationId: "corr_test",
     });
 
@@ -587,7 +603,7 @@ describe("requestCommand", () => {
 
   it("decision path: command → decision → resume → done", async () => {
     const t = convexTest(schema, modules);
-    const alice = asUser(t, "user:alice");
+    const alice = await setupProject(t);
 
     // 1. Request command
     const { commandId, cardId } = await alice.mutation(
@@ -616,7 +632,7 @@ describe("requestCommand", () => {
 
     // Verify blocked state
     let blocked = await alice.query(api.cards.cardsByState, {
-      projectId: "proj_test",
+      projectId: PROJECT_ID,
       state: "NEEDS_DECISION",
     });
     expect(blocked).toHaveLength(1);
@@ -640,7 +656,7 @@ describe("requestCommand", () => {
     });
 
     const done = await alice.query(api.cards.cardsByState, {
-      projectId: "proj_test",
+      projectId: PROJECT_ID,
       state: "DONE",
     });
     expect(done).toHaveLength(1);
@@ -649,7 +665,7 @@ describe("requestCommand", () => {
 
   it("uses priority from commandSpec.constraints", async () => {
     const t = convexTest(schema, modules);
-    const alice = asUser(t, "user:alice");
+    const alice = await setupProject(t);
 
     await alice.mutation(api.commands.requestCommand, {
       ...BASE_COMMAND,
@@ -660,7 +676,7 @@ describe("requestCommand", () => {
     });
 
     const cards = await alice.query(api.cards.cardsByState, {
-      projectId: "proj_test",
+      projectId: PROJECT_ID,
       state: "READY",
     });
     expect(cards[0].priority).toBe(5);
@@ -668,7 +684,7 @@ describe("requestCommand", () => {
 
   it("defaults priority to 50 when not specified", async () => {
     const t = convexTest(schema, modules);
-    const alice = asUser(t, "user:alice");
+    const alice = await setupProject(t);
 
     await alice.mutation(api.commands.requestCommand, {
       ...BASE_COMMAND,
@@ -678,7 +694,7 @@ describe("requestCommand", () => {
     });
 
     const cards = await alice.query(api.cards.cardsByState, {
-      projectId: "proj_test",
+      projectId: PROJECT_ID,
       state: "READY",
     });
     expect(cards[0].priority).toBe(50);
@@ -694,8 +710,8 @@ describe("projectors", () => {
 
       const result = await t.mutation(internal.projectors.projectCommandEvent, {
         eventId: "evt_001",
-        tenantId: "tenant_test",
-        projectId: "proj_test",
+        tenantId: TENANT_ID,
+        projectId: PROJECT_ID,
         type: "CommandRequested",
         ts: 1000,
         commandId: "cmd_proj_1",
@@ -715,8 +731,8 @@ describe("projectors", () => {
 
       await t.mutation(internal.projectors.projectCommandEvent, {
         eventId: "evt_001",
-        tenantId: "tenant_test",
-        projectId: "proj_test",
+        tenantId: TENANT_ID,
+        projectId: PROJECT_ID,
         type: "CommandRequested",
         ts: 1000,
         commandId: "cmd_proj_2",
@@ -727,8 +743,8 @@ describe("projectors", () => {
 
       const result = await t.mutation(internal.projectors.projectCommandEvent, {
         eventId: "evt_002",
-        tenantId: "tenant_test",
-        projectId: "proj_test",
+        tenantId: TENANT_ID,
+        projectId: PROJECT_ID,
         type: "CommandStarted",
         ts: 2000,
         commandId: "cmd_proj_2",
@@ -744,8 +760,8 @@ describe("projectors", () => {
 
       await t.mutation(internal.projectors.projectCommandEvent, {
         eventId: "evt_001",
-        tenantId: "tenant_test",
-        projectId: "proj_test",
+        tenantId: TENANT_ID,
+        projectId: PROJECT_ID,
         type: "CommandRequested",
         ts: 1000,
         commandId: "cmd_proj_3",
@@ -756,8 +772,8 @@ describe("projectors", () => {
 
       await t.mutation(internal.projectors.projectCommandEvent, {
         eventId: "evt_002",
-        tenantId: "tenant_test",
-        projectId: "proj_test",
+        tenantId: TENANT_ID,
+        projectId: PROJECT_ID,
         type: "CommandStarted",
         ts: 2000,
         commandId: "cmd_proj_3",
@@ -768,8 +784,8 @@ describe("projectors", () => {
       // Replay evt_001 — should be skipped
       const result = await t.mutation(internal.projectors.projectCommandEvent, {
         eventId: "evt_001",
-        tenantId: "tenant_test",
-        projectId: "proj_test",
+        tenantId: TENANT_ID,
+        projectId: PROJECT_ID,
         type: "CommandRequested",
         ts: 1000,
         commandId: "cmd_proj_3",
@@ -789,8 +805,8 @@ describe("projectors", () => {
 
       const result = await t.mutation(internal.projectors.projectRunEvent, {
         eventId: "evt_001",
-        tenantId: "tenant_test",
-        projectId: "proj_test",
+        tenantId: TENANT_ID,
+        projectId: PROJECT_ID,
         type: "CommandStarted",
         ts: 1000,
         commandId: "cmd_test",
@@ -806,8 +822,8 @@ describe("projectors", () => {
 
       await t.mutation(internal.projectors.projectRunEvent, {
         eventId: "evt_001",
-        tenantId: "tenant_test",
-        projectId: "proj_test",
+        tenantId: TENANT_ID,
+        projectId: PROJECT_ID,
         type: "CommandStarted",
         ts: 1000,
         commandId: "cmd_test",
@@ -817,8 +833,8 @@ describe("projectors", () => {
 
       const result = await t.mutation(internal.projectors.projectRunEvent, {
         eventId: "evt_002",
-        tenantId: "tenant_test",
-        projectId: "proj_test",
+        tenantId: TENANT_ID,
+        projectId: PROJECT_ID,
         type: "CommandSucceeded",
         ts: 2000,
         commandId: "cmd_test",
@@ -834,8 +850,8 @@ describe("projectors", () => {
 
       await t.mutation(internal.projectors.projectRunEvent, {
         eventId: "evt_001",
-        tenantId: "tenant_test",
-        projectId: "proj_test",
+        tenantId: TENANT_ID,
+        projectId: PROJECT_ID,
         type: "CommandStarted",
         ts: 1000,
         commandId: "cmd_test",
@@ -845,8 +861,8 @@ describe("projectors", () => {
 
       const result = await t.mutation(internal.projectors.projectRunEvent, {
         eventId: "evt_002",
-        tenantId: "tenant_test",
-        projectId: "proj_test",
+        tenantId: TENANT_ID,
+        projectId: PROJECT_ID,
         type: "CommandFailed",
         ts: 2000,
         commandId: "cmd_test",
@@ -862,8 +878,8 @@ describe("projectors", () => {
 
       await t.mutation(internal.projectors.projectRunEvent, {
         eventId: "evt_001",
-        tenantId: "tenant_test",
-        projectId: "proj_test",
+        tenantId: TENANT_ID,
+        projectId: PROJECT_ID,
         type: "CommandStarted",
         ts: 1000,
         commandId: "cmd_test",
@@ -873,8 +889,8 @@ describe("projectors", () => {
 
       const result = await t.mutation(internal.projectors.projectRunEvent, {
         eventId: "evt_001",
-        tenantId: "tenant_test",
-        projectId: "proj_test",
+        tenantId: TENANT_ID,
+        projectId: PROJECT_ID,
         type: "CommandStarted",
         ts: 1000,
         commandId: "cmd_test",
@@ -893,8 +909,8 @@ describe("projectors", () => {
 
       const result = await t.mutation(internal.projectors.projectCardEvent, {
         eventId: "evt_001",
-        tenantId: "tenant_test",
-        projectId: "proj_test",
+        tenantId: TENANT_ID,
+        projectId: PROJECT_ID,
         type: "CardCreated",
         ts: 1000,
         cardId: "card_proj_1",
@@ -913,8 +929,8 @@ describe("projectors", () => {
 
       await t.mutation(internal.projectors.projectCardEvent, {
         eventId: "evt_001",
-        tenantId: "tenant_test",
-        projectId: "proj_test",
+        tenantId: TENANT_ID,
+        projectId: PROJECT_ID,
         type: "CardCreated",
         ts: 1000,
         cardId: "card_proj_2",
@@ -927,8 +943,8 @@ describe("projectors", () => {
 
       const result = await t.mutation(internal.projectors.projectCardEvent, {
         eventId: "evt_002",
-        tenantId: "tenant_test",
-        projectId: "proj_test",
+        tenantId: TENANT_ID,
+        projectId: PROJECT_ID,
         type: "CardTransitioned",
         ts: 2000,
         cardId: "card_proj_2",
@@ -946,8 +962,8 @@ describe("projectors", () => {
 
       await t.mutation(internal.projectors.projectCardEvent, {
         eventId: "evt_001",
-        tenantId: "tenant_test",
-        projectId: "proj_test",
+        tenantId: TENANT_ID,
+        projectId: PROJECT_ID,
         type: "CardCreated",
         ts: 1000,
         cardId: "card_proj_3",
@@ -960,8 +976,8 @@ describe("projectors", () => {
 
       const result = await t.mutation(internal.projectors.projectCardEvent, {
         eventId: "evt_001",
-        tenantId: "tenant_test",
-        projectId: "proj_test",
+        tenantId: TENANT_ID,
+        projectId: PROJECT_ID,
         type: "CardCreated",
         ts: 1000,
         cardId: "card_proj_3",

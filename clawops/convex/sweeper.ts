@@ -2,6 +2,8 @@ import { v } from "convex/values";
 import { internalMutation } from "./_generated/server";
 import { internal } from "./_generated/api";
 
+// Intentionally auth-free: sweep is trusted internal system code called by cron.
+
 // ── Constants ───────────────────────────────────────────────────
 
 const DEFER_EXTENSION_MS = 24 * 60 * 60 * 1000; // 24 hours

@@ -296,6 +296,17 @@ export default defineSchema({
       "createdAt",
     ]),
 
+  // Projects — project registry (§14.1)
+  projects: defineTable({
+    tenantId: v.string(),
+    projectId: v.string(),
+    name: v.string(),
+    createdAt: v.number(),
+    createdBy: v.string(),
+  })
+    .index("by_projectId", ["projectId"])
+    .index("by_tenantId", ["tenantId"]),
+
   // Project Members — RBAC (§14.1)
   project_members: defineTable({
     tenantId: v.string(),
