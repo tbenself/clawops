@@ -1,5 +1,3 @@
-"use client";
-
 import {
   Authenticated,
   Unauthenticated,
@@ -9,43 +7,118 @@ import {
 import { api } from "../convex/_generated/api";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { useState } from "react";
+import { DecisionQueue } from "./pages/DecisionQueue";
 
 export default function App() {
   return (
+    <div className="min-h-screen bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100">
+      <Authenticated>
+        <Dashboard />
+      </Authenticated>
+      <Unauthenticated>
+        <div className="min-h-screen flex items-center justify-center">
+          <div className="w-full max-w-sm">
+            <h1 className="text-2xl font-bold text-center mb-8">ClawOps</h1>
+            <SignInForm />
+          </div>
+        </div>
+      </Unauthenticated>
+    </div>
+  );
+}
+
+function Dashboard() {
+  const projects = useQuery(api.projectSetup.myProjects);
+  const [projectId, setProjectId] = useState<string | null>(null);
+
+  // Auto-select first project
+  const activeProjectId = projectId ?? projects?.[0]?.projectId ?? null;
+
+  return (
     <>
-      <header className="sticky top-0 z-10 bg-light dark:bg-dark p-4 border-b-2 border-slate-200 dark:border-slate-800">
-        Convex + React + Convex Auth
-        <SignOutButton />
-      </header>
-      <main className="p-8 flex flex-col gap-16">
-        <h1 className="text-4xl font-bold text-center">
-          Convex + React + Convex Auth
-        </h1>
-        <Authenticated>
-          <Content />
-        </Authenticated>
-        <Unauthenticated>
-          <SignInForm />
-        </Unauthenticated>
+      <Header projectId={activeProjectId} projects={projects} onSelectProject={setProjectId} />
+      <main>
+        {projects === undefined ? (
+          <div className="p-8 text-center text-slate-500">Loading...</div>
+        ) : projects.length === 0 ? (
+          <div className="p-12 text-center">
+            <h2 className="text-xl font-semibold mb-2">No projects yet</h2>
+            <p className="text-slate-500">Create a project to get started.</p>
+          </div>
+        ) : activeProjectId ? (
+          <DecisionQueue projectId={activeProjectId} />
+        ) : null}
       </main>
     </>
+  );
+}
+
+type Project = { projectId: string; name: string; role: string };
+
+function Header({
+  projectId,
+  projects,
+  onSelectProject,
+}: {
+  projectId: string | null;
+  projects: Project[] | undefined;
+  onSelectProject: (id: string) => void;
+}) {
+  return (
+    <header className="sticky top-0 z-10 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 px-4 py-3 flex items-center justify-between">
+      <div className="flex items-center gap-3">
+        <span className="font-bold text-lg">ClawOps</span>
+        {projects && projects.length > 1 && (
+          <select
+            value={projectId ?? ""}
+            onChange={(e) => onSelectProject(e.target.value)}
+            className="text-sm bg-transparent border border-slate-200 dark:border-slate-700 rounded px-2 py-1"
+          >
+            {projects.map((p) => (
+              <option key={p.projectId} value={p.projectId}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        )}
+        {projectId && <PendingBadge projectId={projectId} />}
+      </div>
+      <SignOutButton />
+    </header>
+  );
+}
+
+function PendingBadge({ projectId }: { projectId: string }) {
+  const decisions = useQuery(api.decisions.pendingDecisions, { projectId });
+  const count = decisions?.length ?? 0;
+  if (count === 0) return null;
+
+  const hasUrgent = decisions?.some((d) => d.urgency === "now");
+
+  return (
+    <span
+      className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+        hasUrgent
+          ? "bg-red-500 text-white"
+          : "bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200"
+      }`}
+    >
+      {count}
+    </span>
   );
 }
 
 function SignOutButton() {
   const { isAuthenticated } = useConvexAuth();
   const { signOut } = useAuthActions();
+  if (!isAuthenticated) return null;
   return (
-    <>
-      {isAuthenticated && (
-        <button
-          className="bg-slate-200 dark:bg-slate-800 text-dark dark:text-light rounded-md px-2 py-1"
-          onClick={() => void signOut()}
-        >
-          Sign out
-        </button>
-      )}
-    </>
+    <button
+      className="text-sm text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+      onClick={() => void signOut()}
+    >
+      Sign out
+    </button>
   );
 }
 
@@ -53,79 +126,55 @@ function SignInForm() {
   const { signIn } = useAuthActions();
   const [flow, setFlow] = useState<"signIn" | "signUp">("signIn");
   const [error, setError] = useState<string | null>(null);
+
   return (
-    <div className="flex flex-col gap-8 w-96 mx-auto">
-      <p>Log in to see the numbers</p>
-      <form
-        className="flex flex-col gap-2"
-        onSubmit={(e) => {
-          e.preventDefault();
-          const formData = new FormData(e.target as HTMLFormElement);
-          formData.set("flow", flow);
-          void signIn("password", formData).catch((error) => {
-            setError(error.message);
-          });
-        }}
+    <form
+      className="flex flex-col gap-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        setError(null);
+        const formData = new FormData(e.target as HTMLFormElement);
+        formData.set("flow", flow);
+        void signIn("password", formData).catch((err) => {
+          setError(err.message);
+        });
+      }}
+    >
+      <input
+        className="border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 bg-transparent"
+        type="email"
+        name="email"
+        placeholder="Email"
+        autoComplete="email"
+      />
+      <input
+        className="border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 bg-transparent"
+        type="password"
+        name="password"
+        placeholder="Password"
+        autoComplete="current-password"
+      />
+      <button
+        className="bg-blue-600 text-white rounded-lg px-3 py-2 font-medium hover:bg-blue-700 transition-colors"
+        type="submit"
       >
-        <input
-          className="bg-light dark:bg-dark text-dark dark:text-light rounded-md p-2 border-2 border-slate-200 dark:border-slate-800"
-          type="email"
-          name="email"
-          placeholder="Email"
-        />
-        <input
-          className="bg-light dark:bg-dark text-dark dark:text-light rounded-md p-2 border-2 border-slate-200 dark:border-slate-800"
-          type="password"
-          name="password"
-          placeholder="Password"
-        />
+        {flow === "signIn" ? "Sign in" : "Sign up"}
+      </button>
+      <p className="text-sm text-center text-slate-500">
+        {flow === "signIn" ? "Don't have an account? " : "Already have an account? "}
         <button
-          className="bg-dark dark:bg-light text-light dark:text-dark rounded-md"
-          type="submit"
+          type="button"
+          className="text-blue-500 hover:underline"
+          onClick={() => setFlow(flow === "signIn" ? "signUp" : "signIn")}
         >
-          {flow === "signIn" ? "Sign in" : "Sign up"}
+          {flow === "signIn" ? "Sign up" : "Sign in"}
         </button>
-        <div className="flex flex-row gap-2">
-          <span>
-            {flow === "signIn"
-              ? "Don't have an account?"
-              : "Already have an account?"}
-          </span>
-          <span
-            className="text-dark dark:text-light underline hover:no-underline cursor-pointer"
-            onClick={() => setFlow(flow === "signIn" ? "signUp" : "signIn")}
-          >
-            {flow === "signIn" ? "Sign up instead" : "Sign in instead"}
-          </span>
+      </p>
+      {error && (
+        <div className="p-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-sm text-red-600 dark:text-red-400">
+          {error}
         </div>
-        {error && (
-          <div className="bg-red-500/20 border-2 border-red-500/50 rounded-md p-2">
-            <p className="text-dark dark:text-light font-mono text-xs">
-              Error signing in: {error}
-            </p>
-          </div>
-        )}
-      </form>
-    </div>
+      )}
+    </form>
   );
 }
-
-function Content() {
-  const viewer = useQuery(api.myFunctions.viewer);
-
-  if (viewer === undefined) {
-    return (
-      <div className="mx-auto">
-        <p>Loading...</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex flex-col gap-8 max-w-lg mx-auto">
-      <p>Welcome {viewer ?? "Anonymous"}!</p>
-      <p>ClawOps is running.</p>
-    </div>
-  );
-}
-
