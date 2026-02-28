@@ -11,11 +11,13 @@
 import type * as auth from "../auth.js";
 import type * as cards from "../cards.js";
 import type * as commands from "../commands.js";
+import type * as crons from "../crons.js";
 import type * as decisions from "../decisions.js";
 import type * as events from "../events.js";
 import type * as http from "../http.js";
 import type * as myFunctions from "../myFunctions.js";
 import type * as projectors from "../projectors.js";
+import type * as sweeper from "../sweeper.js";
 
 import type {
   ApiFromModules,
@@ -27,11 +29,13 @@ declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   cards: typeof cards;
   commands: typeof commands;
+  crons: typeof crons;
   decisions: typeof decisions;
   events: typeof events;
   http: typeof http;
   myFunctions: typeof myFunctions;
   projectors: typeof projectors;
+  sweeper: typeof sweeper;
 }>;
 
 /**
