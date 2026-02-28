@@ -1,45 +1,96 @@
-# Welcome to your Convex + React (Vite) + Convex Auth app
+# ClawOps
 
-This is a [Convex](https://convex.dev/) project created with [`npm create convex`](https://www.npmjs.com/package/create-convex).
+A decision queue for humans in AI agent workflows. Built on [Convex](https://convex.dev/).
 
-After the initial setup (<2 minutes) you'll have a working full-stack app using:
+Bots block on human decisions across scattered threads and platforms. ClawOps provides a unified **Decision Queue** — a single, prioritized inbox where every bot-blocked-on-human decision surfaces with full context, artifacts, and one-click resolution.
 
-- Convex as your backend (database, server logic)
-- [React](https://react.dev/) as your frontend (web page interactivity)
-- [Vite](https://vitest.dev/) for optimized web hosting
-- [Tailwind](https://tailwindcss.com/) for building great looking UI
-- [Convex Auth](https://labs.convex.dev/auth) for authentication
+## Architecture
 
-## Get started
+**Backend** (Convex)
+- **Event Bus** — append-only log with correlation chains, idempotency, and secret detection
+- **Commands & Cards** — work item lifecycle with a strict state machine (READY → RUNNING → DONE/FAILED/NEEDS_DECISION)
+- **Decision Queue** — PENDING → CLAIMED → RENDERED flow with urgency levels (now/today/whenever), claim leasing, and compare-and-set rendering
+- **Artifact Store** — content-addressed (SHA256) immutable artifacts with Convex file storage, per-project dedup, and provenance linking
+- **Sweeper** — periodic maintenance: retry release, decision expiration, claim reclamation, load shedding
+- **Bot Adapter** — thin 4-function interface (`requestCommand`, `requestDecision`, `reportArtifact`, `awaitDecision`)
+- **RBAC** — project-scoped roles: owner, operator, viewer, bot
 
-If you just cloned this codebase and didn't use `npm create convex`, run:
+**Frontend** (React + Tailwind)
+- Decision queue dashboard with real-time subscriptions
+- Auto-claim on open, heartbeat renewal, one-click rendering
+- Artifact viewer with download links
+- Event chain timeline
+- Convex Auth (email/password)
 
-```
+## Getting Started
+
+```bash
 npm install
 npm run dev
 ```
 
-If you're reading this README on GitHub and want to use this template, run:
+This starts both the Vite frontend and Convex backend in parallel.
+
+## Scripts
+
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Start frontend + backend |
+| `npm run dev:frontend` | Start Vite dev server only |
+| `npm run dev:backend` | Start Convex dev server only |
+| `npm run build` | TypeScript check + Vite build |
+| `npm test` | Run all tests |
+| `npm run test:watch` | Run tests in watch mode |
+
+## Project Structure
 
 ```
-npm create convex@latest -- -t react-vite-convexauth
+convex/           # Convex backend
+  schema.ts       # Table definitions and validators
+  auth.ts         # Convex Auth + RBAC middleware
+  events.ts       # Event bus (append-only log)
+  cards.ts        # Cards + state machine + commands
+  decisions.ts    # Decision queue lifecycle
+  artifacts.ts    # Artifact storage (SHA256, blob, dedup)
+  commands.ts     # Command request + read model
+  adapter.ts      # Bot adapter interface
+  sweeper.ts      # Periodic maintenance
+  projectSetup.ts # Project bootstrapping
+  projectMembers.ts # Member management
+  *.test.ts       # 147 tests
+
+src/              # React frontend
+  App.tsx         # Dashboard shell + auth
+  pages/
+    DecisionQueue.tsx  # Decision queue list
+  components/
+    DecisionDetail.tsx # Decision detail + rendering
 ```
 
-For more information on how to configure Convex Auth, check out the [Convex Auth docs](https://labs.convex.dev/auth/).
+## Bot Adapter Interface
 
-For more examples of different Convex Auth flows, check out this [example repo](https://www.convex.dev/templates/convex-auth).
+Bots interact through 4 functions:
 
-## Learn more
+```typescript
+// Request a new command (creates card in READY)
+const { commandId, cardId } = await requestCommand({ projectId, title, commandSpec, ... });
 
-To learn more about developing your project with Convex, check out:
+// Report an artifact (content-addressed, deduped)
+const { artifactId } = await reportArtifact({ projectId, content, encoding, type, logicalName, ... });
 
-- The [Tour of Convex](https://docs.convex.dev/get-started) for a thorough introduction to Convex principles.
-- The rest of [Convex docs](https://docs.convex.dev/) to learn about all Convex features.
-- [Stack](https://stack.convex.dev/) for in-depth articles on advanced topics.
+// Request a human decision (creates decision in PENDING)
+const { decisionId } = await requestDecision({ projectId, cardId, commandId, title, options, ... });
 
-## Join the community
+// Poll for decision outcome
+const result = await awaitDecision({ projectId, decisionId });
+// result: { status: "pending" | "claimed" | "rendered" | "expired", selectedOption?, ... }
+```
 
-Join thousands of developers building full-stack apps with Convex:
+## Tech Stack
 
-- Join the [Convex Discord community](https://convex.dev/community) to get help in real-time.
-- Follow [Convex on GitHub](https://github.com/get-convex/), star and contribute to the open-source implementation of Convex.
+- [Convex](https://convex.dev/) — backend (database, real-time, scheduled functions)
+- [React 19](https://react.dev/) — frontend
+- [Tailwind CSS 4](https://tailwindcss.com/) — styling
+- [Convex Auth](https://labs.convex.dev/auth) — authentication
+- [Vite](https://vite.dev/) — build tooling
+- [Vitest](https://vitest.dev/) + [convex-test](https://github.com/get-convex/convex-test) — testing
