@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { mutation, query, internalMutation } from "./_generated/server";
 import { internal } from "./_generated/api";
 import {
   decisionOption,
@@ -99,6 +99,89 @@ export const requestDecision = mutation({
 
     return { decisionId, _id: docId };
   }),
+});
+
+// ── _httpRequestDecision (HTTP adapter, no RBAC) ────────────────
+
+export const _httpRequestDecision = internalMutation({
+  args: {
+    tenantId: v.string(),
+    projectId: v.string(),
+    cardId: v.string(),
+    commandId: v.string(),
+    runId: v.string(),
+    correlationId: v.string(),
+    causationId: v.optional(v.string()),
+    urgency: urgencyLevel,
+    title: v.string(),
+    contextSummary: v.optional(v.string()),
+    options: v.array(decisionOption),
+    artifactRefs: v.optional(v.array(v.string())),
+    sourceThread: v.optional(sourceThread),
+    expiresAt: v.optional(v.number()),
+    fallbackOption: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    if (args.options.length === 0) {
+      throw new Error("Decision must have at least one option");
+    }
+
+    if (
+      args.fallbackOption !== undefined &&
+      !args.options.some((o) => o.key === args.fallbackOption)
+    ) {
+      throw new Error(
+        `fallbackOption "${args.fallbackOption}" must match an option key`,
+      );
+    }
+
+    const now = Date.now();
+    const decisionId = generateId("dec");
+
+    await ctx.db.insert("decisions", {
+      decisionId,
+      tenantId: args.tenantId,
+      projectId: args.projectId,
+      cardId: args.cardId,
+      commandId: args.commandId,
+      runId: args.runId,
+      state: "PENDING",
+      urgency: args.urgency,
+      title: args.title,
+      contextSummary: args.contextSummary,
+      options: args.options,
+      artifactRefs: args.artifactRefs,
+      sourceThread: args.sourceThread,
+      requestedAt: now,
+      expiresAt: args.expiresAt,
+      fallbackOption: args.fallbackOption,
+    });
+
+    await ctx.runMutation(internal.events.appendEvent, {
+      eventId: generateId("evt"),
+      tenantId: args.tenantId,
+      projectId: args.projectId,
+      type: "DecisionRequested",
+      version: 1,
+      ts: now,
+      correlationId: args.correlationId,
+      causationId: args.causationId,
+      commandId: args.commandId,
+      runId: args.runId,
+      cardId: args.cardId,
+      decisionId,
+      producer: { service: "clawops-decisions", version: "0.1.0" },
+      payload: {
+        title: args.title,
+        urgency: args.urgency,
+        optionKeys: args.options.map((o) => o.key),
+        expiresAt: args.expiresAt,
+        fallbackOption: args.fallbackOption,
+      },
+    });
+
+    return { decisionId };
+  },
 });
 
 // ── claimDecision (§6.6, operator/owner) ────────────────────────

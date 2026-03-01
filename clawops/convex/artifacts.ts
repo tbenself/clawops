@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { action, query, internalMutation, internalQuery } from "./_generated/server";
+import { action, query, internalMutation, internalQuery, internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { artifactLink } from "./schema";
 import { withAuthQ, ALL_ROLES } from "./auth";
@@ -267,4 +267,77 @@ export const artifactsForCommand = query({
       )
       .collect();
   }),
+});
+
+// ── _httpDedupCheck (HTTP adapter) ───────────────────────────
+
+export const _httpDedupCheck = internalQuery({
+  args: {
+    projectId: v.string(),
+    contentSha256: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("artifacts")
+      .withIndex("by_sha256", (q) => q.eq("contentSha256", args.contentSha256))
+      .collect();
+    const duplicate = existing.find((a) => a.projectId === args.projectId);
+    return duplicate ? { artifactId: duplicate.artifactId } : null;
+  },
+});
+
+// ── _httpReportArtifact (HTTP adapter, no RBAC) ──────────────
+
+export const _httpReportArtifact = internalAction({
+  args: {
+    tenantId: v.string(),
+    projectId: v.string(),
+    content: v.string(),
+    encoding: v.union(v.literal("utf8"), v.literal("base64")),
+    type: v.string(),
+    logicalName: v.string(),
+    labels: v.optional(v.any()),
+    commandId: v.optional(v.string()),
+    runId: v.optional(v.string()),
+    correlationId: v.optional(v.string()),
+    links: v.optional(v.array(artifactLink)),
+  },
+  handler: async (ctx, args) => {
+    const bytes = decodeContent(args.content, args.encoding);
+    const contentSha256 = await sha256Hex(bytes);
+
+    const existing = await ctx.runQuery(internal.artifacts._httpDedupCheck, {
+      projectId: args.projectId,
+      contentSha256,
+    });
+
+    if (existing) {
+      return { artifactId: existing.artifactId, deduplicated: true };
+    }
+
+    const blob = new Blob([bytes], { type: args.type });
+    const storageId = await ctx.storage.store(blob);
+
+    const artifactId = generateId("art");
+    const eventId = generateId("evt");
+
+    await ctx.runMutation(internal.artifacts._createManifest, {
+      artifactId,
+      eventId,
+      tenantId: args.tenantId,
+      projectId: args.projectId,
+      contentSha256,
+      type: args.type,
+      logicalName: args.logicalName,
+      byteSize: bytes.length,
+      labels: args.labels,
+      commandId: args.commandId,
+      runId: args.runId,
+      correlationId: args.correlationId,
+      links: args.links,
+      storageId,
+    });
+
+    return { artifactId, deduplicated: false };
+  },
 });

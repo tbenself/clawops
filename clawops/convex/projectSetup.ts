@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { mutation, query, internalQuery } from "./_generated/server";
 
 // ── initProject — bootstrap entry point (§14.1) ─────────────────
 
@@ -46,6 +46,19 @@ export const initProject = mutation({
     });
 
     return { projectId: args.projectId };
+  },
+});
+
+// ── _httpLookupProject — resolve tenantId from projectId (HTTP adapter) ──
+
+export const _httpLookupProject = internalQuery({
+  args: { projectId: v.string() },
+  handler: async (ctx, args) => {
+    const project = await ctx.db
+      .query("projects")
+      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+      .unique();
+    return project ? { tenantId: project.tenantId } : null;
   },
 });
 
