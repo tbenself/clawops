@@ -20,18 +20,19 @@ export type AuthContext = {
 
 const ALL_ROLES: Role[] = ["owner", "operator", "viewer", "bot"];
 
+// Args type for auth-wrapped handlers. projectId is typed; other properties
+// pass through as `any` since Convex validates them at runtime via arg validators.
+type AuthArgs = { projectId: string } & Record<string, any>;
+
 /**
  * Middleware wrapper for mutations. Resolves caller identity, validates
  * project membership, and enforces RBAC roles before calling the handler.
  * Owner role always passes any role check.
  */
-export function withAuth<
-  Args extends { projectId: string },
-  Result,
->(
+export function withAuth<Result>(
   opts: { roles: Role[] },
-  handler: (ctx: MutationCtx, args: Args, auth: AuthContext) => Promise<Result>,
-): (ctx: MutationCtx, args: Args) => Promise<Result> {
+  handler: (ctx: MutationCtx, args: AuthArgs, auth: AuthContext) => Promise<Result>,
+): (ctx: MutationCtx, args: AuthArgs) => Promise<Result> {
   return async (ctx, args) => {
     const authCtx = await resolveAuth(ctx, args.projectId);
     if (authCtx.role !== "owner" && !opts.roles.includes(authCtx.role)) {
@@ -46,13 +47,10 @@ export function withAuth<
 /**
  * Middleware wrapper for queries. Same as withAuth but typed for QueryCtx.
  */
-export function withAuthQ<
-  Args extends { projectId: string },
-  Result,
->(
+export function withAuthQ<Result>(
   opts: { roles: Role[] },
-  handler: (ctx: QueryCtx, args: Args, auth: AuthContext) => Promise<Result>,
-): (ctx: QueryCtx, args: Args) => Promise<Result> {
+  handler: (ctx: QueryCtx, args: AuthArgs, auth: AuthContext) => Promise<Result>,
+): (ctx: QueryCtx, args: AuthArgs) => Promise<Result> {
   return async (ctx, args) => {
     const authCtx = await resolveAuth(ctx, args.projectId);
     if (authCtx.role !== "owner" && !opts.roles.includes(authCtx.role)) {

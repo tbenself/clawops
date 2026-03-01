@@ -193,10 +193,10 @@ export const emitEvent = mutation({
     tags: v.optional(v.any()),
     payload: v.any(),
   },
-  handler: withAuth({ roles: ["bot", "owner"] }, async (ctx, args, auth) => {
-    return await ctx.runMutation(internal.events.appendEvent, {
-      ...args,
-      tenantId: auth.tenantId,
-    });
+  handler: withAuth({ roles: ["bot", "owner"] }, async (ctx, args, auth): Promise<void> => {
+    await ctx.runMutation(
+      internal.events.appendEvent,
+      { ...args, tenantId: auth.tenantId } as any,
+    );
   }),
 });

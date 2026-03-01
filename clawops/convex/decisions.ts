@@ -45,7 +45,7 @@ export const requestDecision = mutation({
 
     if (
       args.fallbackOption !== undefined &&
-      !args.options.some((o) => o.key === args.fallbackOption)
+      !args.options.some((o: any) => o.key === args.fallbackOption)
     ) {
       throw new Error(
         `fallbackOption "${args.fallbackOption}" must match an option key`,
@@ -91,7 +91,7 @@ export const requestDecision = mutation({
       payload: {
         title: args.title,
         urgency: args.urgency,
-        optionKeys: args.options.map((o) => o.key),
+        optionKeys: args.options.map((o: any) => o.key),
         expiresAt: args.expiresAt,
         fallbackOption: args.fallbackOption,
       },

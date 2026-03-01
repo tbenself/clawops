@@ -13,7 +13,7 @@ function generateId(prefix: string): string {
 }
 
 async function sha256Hex(bytes: Uint8Array): Promise<string> {
-  const hash = await crypto.subtle.digest("SHA-256", bytes);
+  const hash = await crypto.subtle.digest("SHA-256", bytes as unknown as ArrayBuffer);
   return Array.from(new Uint8Array(hash))
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
@@ -155,7 +155,7 @@ export const reportArtifact = action({
     correlationId: v.optional(v.string()),
     links: v.optional(v.array(artifactLink)),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<{ artifactId: string; deduplicated: boolean }> => {
     // 1. Auth
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthenticated");
@@ -181,7 +181,7 @@ export const reportArtifact = action({
     }
 
     // 4. Upload blob
-    const blob = new Blob([bytes], { type: args.type });
+    const blob = new Blob([bytes as unknown as BlobPart], { type: args.type });
     const storageId = await ctx.storage.store(blob);
 
     // 5. Create manifest + emit event
@@ -302,7 +302,7 @@ export const _httpReportArtifact = internalAction({
     correlationId: v.optional(v.string()),
     links: v.optional(v.array(artifactLink)),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<{ artifactId: string; deduplicated: boolean }> => {
     const bytes = decodeContent(args.content, args.encoding);
     const contentSha256 = await sha256Hex(bytes);
 
@@ -315,7 +315,7 @@ export const _httpReportArtifact = internalAction({
       return { artifactId: existing.artifactId, deduplicated: true };
     }
 
-    const blob = new Blob([bytes], { type: args.type });
+    const blob = new Blob([bytes as unknown as BlobPart], { type: args.type });
     const storageId = await ctx.storage.store(blob);
 
     const artifactId = generateId("art");
